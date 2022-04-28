@@ -1,0 +1,196 @@
+// ┌─ 1*log 日志设置 - 日志写什么，写哪里（出错时有据可查）
+// ├─ 2_dns DNS-设置 - DNS 怎么查（防 DNS 污染、防偷窥、避免国内外站匹配到国外服务器等）
+// ├─ 3_routing 分流设置 - 流量怎么分类处理（是否过滤广告、是否国内外分流）
+// ├─ 4_inbounds 入站设置 - 什么流量可以流入 Xray
+// └─ 5_outbounds 出站设置 - 流出 Xray 的流量往哪里去
+{
+  // 1\_日志设置
+  "log": {
+    "loglevel": "info", // 内容从少到多: "none", "error", "warning", "info", "debug"
+    "access": "/var/log/xray/access.log", // 访问记录
+    "error": "/var/log/xray/error.log" // 错误记录
+  },
+  // 2_DNS 设置
+  "dns": {
+    "servers": [
+      "https+local://1.1.1.1/dns-query", // 首选 1.1.1.1 的 DoH 查询，牺牲速度但可防止 ISP 偷窥
+      "localhost"
+    ]
+  },
+  // 3*分流设置
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      // 3.1 防止服务器本地流转问题：如内网被攻击或滥用、错误的本地回环等
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private" // 分流条件：geoip 文件内，名为"private"的规则（本地）
+        ],
+        "outboundTag": "block" // 分流策略：交给出站"block"处理（黑洞屏蔽）
+      },
+      // 3.2 屏蔽广告
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ads-all" // 分流条件：geosite 文件内，名为"category-ads-all"的规则（各种广告域名）
+        ],
+        "outboundTag": "block" // 分流策略：交给出站"block"处理（黑洞屏蔽）
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:cn"
+        ],
+        "outboundTag": "block" // 分流策略：交给出站"block"处理（黑洞屏蔽）
+      }
+    ]
+  },
+  // 4*入站设置
+  // 4.1 默认是vless+tcp+xtls,利用fallbacks，分别数据回落到trojan+tcp+tls,vmess+ws+tls,再利用trojan的回落到nginx的网页。
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "829f0177-610c-48a4-8067-09728914eaa8", // 填写你的 UUID
+            "flow": "xtls-rprx-direct",
+            "level": 0,
+            "email": "kukuci@gmail.com"
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": 8888, // 回落到trojan
+            "xver": 1
+          },
+          {
+            "path": "/work", // 回落到vmess+ws
+            "dest": 6666,
+            "xver": 1
+        }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "xtls",
+        "xtlsSettings": {
+          "allowInsecure": false, // 正常使用应确保关闭
+          "minVersion": "1.2", // TLS 最低版本设置
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/cert/o.teamred.top_bundle.crt",     // 证书位置，绝对路径。
+              "keyFile": "/usr/local/cert/o.teamred.top.key"  //密匙位置，绝对路径。
+            }
+          ]
+        }
+      }
+    },
+    {
+      "port": 4598,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "829f0177-610c-48a4-8067-09728914eaa8", // 填写你的 UUID
+            "flow": "xtls-rprx-direct",
+            "level": 0,
+            "email": "kukuci@gmail.com"
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": 8888, // 回落到trojan
+            "xver": 1
+          },
+          {
+            "path": "/work", // 回落到vmess+ws
+            "dest": 6666,
+            "xver": 1
+        }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "xtls",
+        "xtlsSettings": {
+          "allowInsecure": false, // 正常使用应确保关闭
+          "minVersion": "1.2", // TLS 最低版本设置
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/cert/o.teamred.top_bundle.crt",     // 证书位置，绝对路径。
+              "keyFile": "/usr/local/cert/o.teamred.top.key"  //密匙位置，绝对路径。
+            }
+          ]
+        }
+      }
+    },
+    {
+      "port": 8888,
+      "listen": "127.0.0.1",
+      "protocol": "trojan",
+      "settings": {
+          "clients": [
+              {
+                  "password": "829f0177-610c-48a4-8067-09728914eaa8", // 填写你的密码
+                  "level": 0,
+                  "email": "kukuci@gmail.com"
+              }
+          ],
+          "fallbacks": [
+              {
+                  "dest": 8080 // 回落到nginx。
+              }
+          ]
+      },
+      "streamSettings": {
+          "network": "tcp",
+          "security": "none",
+          "tcpSettings": {
+              "acceptProxyProtocol": true
+          }
+      }
+  },
+  {
+    "port": 6666,
+    "listen": "127.0.0.1",
+    "protocol": "vmess",
+    "settings": {
+        "clients": [
+            {
+                "id": "829f0177-610c-48a4-8067-09728914eaa8", // 填写你的 UUID
+                "level": 0,
+                "email": "kukuci@gmail.com"
+            }
+        ]
+    },
+    "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+            "acceptProxyProtocol": true, // 提醒：若你用 Nginx/Caddy 等反代 WS，需要删掉这行
+            "path": "/work" // 必须换成自定义的 PATH，需要和分流的一致
+        }
+    }
+}
+  ],
+  // 5*出站设置
+  "outbounds": [
+    // 5.1 第一个出站是默认规则，freedom 就是对外直连（vps 已经是外网，所以直连）
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    // 5.2 屏蔽规则，blackhole 协议就是把流量导入到黑洞里（屏蔽）
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ]
+}
